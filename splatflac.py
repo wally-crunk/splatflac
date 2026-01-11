@@ -2,8 +2,9 @@
 """
 Split FLAC or WAV audio tracks into files, using a CUE sheet.
 WAV inputs are re-encoded to FLAC with compression level 8.
+FLAC inputs are re-encoded by default to fix STREAMINFO; use --streamcopy
+to keep original FLAC frames.
 This script does not adjust for zero-crossings or apply fades.
-Stream copy: STREAMINFO will not be corrected in output.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import List, Optional
 
 getcontext().prec = 18
 
-__version__ = "0.0.0"
+__version__ = "0.0.1"
 BANNER = f"splat v{__version__}"
 
 class Style:
@@ -231,9 +232,10 @@ def run_ffmpeg(
     start: Fraction,
     end: Optional[Fraction],
     metadata: dict[str, str],
+    fix_streaminfo: bool,
 ) -> None:
-    """Invoke ffmpeg to split a segment, re-encoding WAV inputs to FLAC."""
-    # Use stream copy for FLAC inputs; WAV inputs are re-encoded to FLAC.
+    """Invoke ffmpeg to split a segment, optionally re-encoding FLAC for STREAMINFO."""
+    # Use stream copy for FLAC inputs unless STREAMINFO fixes are enabled.
     if output_path.exists():
         raise FileExistsError(f"Output file already exists: '{output_path}'")
 
@@ -241,7 +243,10 @@ def run_ffmpeg(
     if suffix in (".wav", ".wave"):
         codec_args = ["-c:a", "flac", "-compression_level", "8"]
     elif suffix == ".flac":
-        codec_args = ["-c", "copy"]
+        if fix_streaminfo:
+            codec_args = ["-c:a", "flac", "-compression_level", "8"]
+        else:
+            codec_args = ["-c", "copy"]
     else:
         raise RuntimeError(f"Unsupported input format: '{input_path.suffix}'")
 
@@ -269,7 +274,11 @@ def run_ffmpeg(
     subprocess.run(cmd, check=True)
 
 
-def split_files(cue_path: Path, tag_output: bool) -> tuple[int, set[str]]:
+def split_files(
+    cue_path: Path,
+    tag_output: bool,
+    fix_streaminfo: bool,
+) -> tuple[int, set[str]]:
     """Split all FILE entries referenced by the CUE into track files."""
     # Iterate in CUE order and split each file at INDEX 01 boundaries.
     if shutil.which("ffmpeg") is None:
@@ -310,7 +319,14 @@ def split_files(cue_path: Path, tag_output: bool) -> tuple[int, set[str]]:
                     metadata["ARTIST"] = performer
                     metadata["ALBUMARTIST"] = performer
                 tags_used.update(metadata.keys())
-            run_ffmpeg(entry.path, output_path, track.start, end_time, metadata)
+            run_ffmpeg(
+                entry.path,
+                output_path,
+                track.start,
+                end_time,
+                metadata,
+                fix_streaminfo=fix_streaminfo,
+            )
             written += 1
 
     return written, tags_used
@@ -319,7 +335,9 @@ def main() -> int:
     """CLI entrypoint."""
     parser = argparse.ArgumentParser(
         description=(
-            "Split FLAC files using a CUE sheet without re-encoding. "
+            "Split FLAC files using a CUE sheet. "
+            "By default, FLAC outputs are re-encoded to fix STREAMINFO; "
+            "use --streamcopy to keep original FLAC frames (STREAMINFO may be wrong). "
             "WAV inputs are re-encoded to FLAC."
         ),
         epilog=(
@@ -335,6 +353,11 @@ def main() -> int:
         action="store_true",
         help="Disable writing tags derived from the CUE sheet",
     )
+    parser.add_argument(
+        "--streamcopy",
+        action="store_true",
+        help="Keep original FLAC frames (STREAMINFO may be wrong)",
+    )
     args = parser.parse_args()
 
     print()
@@ -349,7 +372,11 @@ def main() -> int:
     start_time = time.monotonic()
 
     try:
-        written, tags_used = split_files(cue_path, tag_output=not args.notagging)
+        written, tags_used = split_files(
+            cue_path,
+            tag_output=not args.notagging,
+            fix_streaminfo=not args.streamcopy,
+        )
     except subprocess.CalledProcessError as exc:
         print(
             f"{STYLE.warn} ffmpeg failed with exit code {exc.returncode}",
