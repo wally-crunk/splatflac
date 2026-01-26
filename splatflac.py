@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -24,7 +23,7 @@ from typing import List, Optional
 
 getcontext().prec = 18
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 BANNER = f"splat v{__version__}"
 
 class Style:
@@ -113,6 +112,26 @@ def parse_timecode(value: str, line_num: int) -> Fraction:
     return Fraction(minutes * 60 + seconds, 1) + Fraction(frames, 75)
 
 
+def parse_cue_value(value: str, line_num: int, keyword: str) -> str:
+    """Parse a CUE keyword value, allowing quoted or raw text."""
+    value = value.strip()
+    if not value:
+        raise ValueError(f"Line {line_num}: malformed {keyword} entry")
+    if value.startswith('"'):
+        if not value.endswith('"') or len(value) < 2:
+            raise ValueError(f"Line {line_num}: unterminated {keyword} entry")
+        return value[1:-1]
+    return value
+
+
+def split_cue_line(line: str, line_num: int) -> List[str]:
+    """Split a CUE line on whitespace without shell-style parsing."""
+    tokens = line.split()
+    if not tokens:
+        raise ValueError(f"Line {line_num}: malformed CUE entry")
+    return tokens
+
+
 def fraction_to_timestamp(value: Fraction) -> str:
     """Format fractional seconds for ffmpeg timestamps with microsecond precision."""
     # Format fractional seconds as a fixed-precision string for ffmpeg.
@@ -158,7 +177,7 @@ def parse_cue(cue_path: Path) -> CueSheet:
             # Track definitions belong to the most recent FILE entry.
             if current_file is None:
                 raise ValueError(f"Line {line_num}: TRACK before FILE")
-            tokens = shlex.split(line, posix=True)
+            tokens = split_cue_line(line, line_num)
             if len(tokens) < 2:
                 raise ValueError(f"Line {line_num}: malformed TRACK entry")
             try:
@@ -171,32 +190,34 @@ def parse_cue(cue_path: Path) -> CueSheet:
 
         if line.upper().startswith("TITLE "):
             # Only track-level TITLE entries are needed for output naming.
-            tokens = shlex.split(line, posix=True)
+            tokens = split_cue_line(line, line_num)
             if len(tokens) < 2:
                 raise ValueError(f"Line {line_num}: malformed TITLE entry")
+            title = parse_cue_value(line[len(tokens[0]):], line_num, "TITLE")
             if current_track is None:
                 if album_title is None:
-                    album_title = tokens[1]
+                    album_title = title
             else:
-                current_track.title = tokens[1]
+                current_track.title = title
             continue
 
         if line.upper().startswith("PERFORMER "):
-            tokens = shlex.split(line, posix=True)
+            tokens = split_cue_line(line, line_num)
             if len(tokens) < 2:
                 raise ValueError(f"Line {line_num}: malformed PERFORMER entry")
+            performer = parse_cue_value(line[len(tokens[0]):], line_num, "PERFORMER")
             if current_track is None:
                 if album_performer is None:
-                    album_performer = tokens[1]
+                    album_performer = performer
             else:
-                current_track.performer = tokens[1]
+                current_track.performer = performer
             continue
 
         if line.upper().startswith("INDEX "):
             # Only INDEX 01 defines track boundaries.
             if current_track is None:
                 raise ValueError(f"Line {line_num}: INDEX before TRACK")
-            tokens = shlex.split(line, posix=True)
+            tokens = split_cue_line(line, line_num)
             if len(tokens) < 3:
                 raise ValueError(f"Line {line_num}: malformed INDEX entry")
             if tokens[1] != "01":

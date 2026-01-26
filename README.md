@@ -25,7 +25,7 @@ Here is a small utility to do one thing correctly.
 - Handles per-side track number resets (prefixes like `01-01 - Track One.flac`)
 - Writes basic tags by default (`TRACKNUMBER`, `TITLE`, album-level fields when present)
 - Re-encodes WAV to FLAC (level 8) when given a WAV file
-- Re-encodes FLAC outputs by default to fix STREAMINFO (md5/length/samples)
+- Re-encodes FLAC outputs by default to fix STREAMINFO (MD5/length/samples)
 
 ## What it does not do
 
@@ -35,7 +35,7 @@ Here is a small utility to do one thing correctly.
 ## Tagging behavior
 
 - By default, splat transcribes explicit metadata from the CUE into FLAC tags
-- Use `--notagging` to disable all tag writing and preserve the original files exactly
+- Use `--notagging` to disable all tag writing and preserve audio data exactly
 - Use `--streamcopy` to keep original FLAC frames (STREAMINFO may be wrong)
 
 ## Why this exists
@@ -48,4 +48,11 @@ Tools that reject them as "not Red Book compliant" are technically correct, but 
 - Python 3.x
 - ffmpeg in PATH
 
+## Version History
+
+- v0.0.2 – fixes CUE parsing for quotes/apostrophes on Windows; adds CI tests.
+- v0.0.1 – re-encodes FLACs to ensure STREAMINFO/MD5 is correct.
+- v0.0.0 – initial release.
+
 **That's it.**
+
